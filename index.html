@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>Relatórios — JFGiralde iA</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root { color-scheme: dark; --azul:#7aa2ff; --fundo:#0f1115; --cartao:#171a21; --borda:#262b36; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--fundo); color:#e5e7eb;
+         font-family:'Segoe UI',system-ui,Arial,sans-serif; min-height:100vh; }
+  header { background:linear-gradient(135deg,#1e3a8a,#0f1115); padding:28px 20px 22px; }
+  .marca { color:var(--azul); font-weight:700; letter-spacing:.5px; font-size:13px; }
+  h1 { margin:6px 0 0; font-size:24px; }
+  header p { margin:4px 0 0; color:#9ca3af; font-size:14px; }
+  main { padding:20px 16px 40px; max-width:560px; margin:0 auto; }
+  .cartao { background:var(--cartao); border:1px solid var(--borda); border-radius:14px;
+            padding:18px 16px; margin-bottom:16px; }
+  label { display:block; color:#9ca3af; font-size:13px; margin-bottom:8px; }
+  select, button { width:100%; font-size:16px; border-radius:10px; border:1px solid var(--borda); }
+  select { padding:12px; background:#1f2430; color:#e5e7eb; }
+  button { padding:14px; margin-top:12px; border:none; font-weight:700; cursor:pointer; }
+  .primario { background:var(--azul); color:#0f1115; }
+  .secundario { background:#2a3142; color:#e5e7eb; }
+  button:disabled { opacity:.5; }
+  .aviso { color:#ff9b9b; font-size:14px; margin-top:10px; min-height:18px; }
+  .info { color:#9ca3af; font-size:13px; margin-top:10px; }
+  .oculto { display:none; }
+  .rodape { text-align:center; color:#5b6472; font-size:12px; margin-top:24px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="marca">JFGiralde iA Softwares</div>
+  <h1>Relatórios de Atividade</h1>
+  <p>Veja o último relatório de cada computador</p>
+</header>
+
+<main>
+  <div class="cartao" id="cartaoLogin">
+    <label>Entre com a mesma conta Google usada no Monitor do computador.</label>
+    <button class="primario" id="btnEntrar">Entrar com o Google</button>
+    <div class="aviso" id="avisoLogin"></div>
+  </div>
+
+  <div class="cartao oculto" id="cartaoPC">
+    <label>Escolha o computador:</label>
+    <select id="selPC"></select>
+    <button class="primario" id="btnVer" disabled>Ver último relatório</button>
+    <button class="secundario" id="btnAtualizar">Atualizar lista</button>
+    <div class="info" id="info"></div>
+    <div class="aviso" id="aviso"></div>
+    <button class="secundario" id="btnSair" style="margin-top:18px;">Sair da conta</button>
+  </div>
+
+  <div class="rodape">JFGiralde iA Softwares · Visualizador de Relatórios</div>
+</main>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// ===================================================================
+//  COLE AQUI o ID do cliente OAuth (tipo "Aplicativo da Web") do Google.
+//  Termina com .apps.googleusercontent.com
+const CLIENT_ID = "991098325701-0l10qum3v69favbim7fnlurfj527qa26.apps.googleusercontent.com";
+// ===================================================================
+
+const ESCOPO = "https://www.googleapis.com/auth/drive.readonly";
+const PREFIXO = "JFGiralde Monitor - ";
+let token = null, tokenClient = null;
+
+const $ = id => document.getElementById(id);
+
+function erro(el, msg) { $(el).textContent = msg || ""; }
+
+window.onload = () => {
+  if (CLIENT_ID.startsWith("COLE_AQUI")) {
+    erro("avisoLogin", "Falta configurar o CLIENT_ID no arquivo index.html.");
+    $("btnEntrar").disabled = true;
+    return;
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: ESCOPO,
+    callback: (resp) => {
+      if (resp.error) { erro("avisoLogin", "Não foi possível entrar: " + resp.error); return; }
+      token = resp.access_token;
+      $("cartaoLogin").classList.add("oculto");
+      $("cartaoPC").classList.remove("oculto");
+      carregarComputadores();
+    },
+  });
+};
+
+$("btnEntrar").onclick = () => { erro("avisoLogin",""); tokenClient.requestAccessToken({prompt:"consent"}); };
+$("btnSair").onclick = () => {
+  if (token) google.accounts.oauth2.revoke(token, ()=>{});
+  token = null;
+  $("cartaoPC").classList.add("oculto");
+  $("cartaoLogin").classList.remove("oculto");
+};
+$("btnAtualizar").onclick = carregarComputadores;
+
+async function drive(params) {
+  const url = "https://www.googleapis.com/drive/v3/files?" + new URLSearchParams(params);
+  const r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+  if (!r.ok) throw new Error("Erro " + r.status + " ao falar com o Google Drive");
+  return r.json();
+}
+
+async function carregarComputadores() {
+  erro("aviso",""); $("info").textContent = "Procurando computadores...";
+  $("btnVer").disabled = true;
+  try {
+    const dados = await drive({
+      q: "mimeType='application/vnd.google-apps.folder' and name contains 'JFGiralde Monitor -' and trashed=false",
+      fields: "files(id,name)", pageSize: "100",
+    });
+    const sel = $("selPC"); sel.innerHTML = "";
+    const pastas = (dados.files||[]).filter(f => f.name.startsWith(PREFIXO));
+    if (!pastas.length) {
+      $("info").textContent = "";
+      erro("aviso", "Nenhum computador encontrado nesta conta. Abra o Monitor no PC e conecte a mesma conta Google.");
+      return;
+    }
+    pastas.sort((a,b)=>a.name.localeCompare(b.name));
+    for (const p of pastas) {
+      const o = document.createElement("option");
+      o.value = p.id; o.textContent = p.name.slice(PREFIXO.length);
+      sel.appendChild(o);
+    }
+    $("info").textContent = pastas.length + " computador(es) encontrado(s).";
+    $("btnVer").disabled = false;
+  } catch (e) {
+    $("info").textContent = ""; erro("aviso", e.message);
+  }
+}
+
+$("btnVer").onclick = async () => {
+  const id = $("selPC").value;
+  if (!id) return;
+  erro("aviso",""); $("info").textContent = "Buscando o último relatório...";
+  try {
+    const dados = await drive({
+      q: "'" + id + "' in parents and mimeType='application/vnd.google-apps.document' and trashed=false",
+      orderBy: "modifiedTime desc", pageSize: "1",
+      fields: "files(id,name,modifiedTime,webViewLink)",
+    });
+    const f = (dados.files||[])[0];
+    if (!f) { $("info").textContent=""; erro("aviso","Esse computador ainda não enviou nenhum relatório."); return; }
+    const d = new Date(f.modifiedTime);
+    $("info").textContent = "Atualizado em " + d.toLocaleString("pt-BR");
+    window.open(f.webViewLink, "_blank");
+  } catch (e) {
+    $("info").textContent=""; erro("aviso", e.message);
+  }
+};
+</script>
+</body>
+</html>
