@@ -64,7 +64,7 @@
   .card{background:var(--cartao);border:1px solid var(--borda);border-radius:10px;padding:10px 12px;
     text-align:left;transition:opacity .15s,transform .1s}
   .card:active{transform:scale(.97)}
-  .card b{display:block;font-size:22px;line-height:1.1}
+  .card{--cor:#999}.card b{display:block;font-size:22px;line-height:1.1}
   .card small{display:block;color:var(--texto);font-size:12.5px;margin-top:3px}
   .card.desligado{opacity:.35}
   .dica{color:var(--apagado);font-size:12px;margin:-4px 2px 12px}
@@ -115,6 +115,38 @@
   @keyframes g{to{transform:rotate(360deg)}}
   .baixar{margin-top:18px;color:var(--azul);font-size:14px;font-weight:600;text-decoration:none;
     border:1px solid var(--borda);border-radius:10px;padding:10px 14px}
+
+  /* ---------- filtros ---------- */
+  .card.marcado{border-color:var(--cor);box-shadow:inset 0 0 0 1px var(--cor)}
+  .filtros{background:var(--cartao);border:1px solid var(--borda);border-radius:12px;margin:0 0 12px;overflow:hidden}
+  .filtros-cab{display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;padding:13px 14px;font-weight:600;font-size:15px;text-align:left}
+  .filtros-cab span{flex:1}
+  .filtros-cab svg{width:18px;height:18px;color:var(--azul)}
+  .filtros-cab .seta{color:var(--suave);transition:transform .2s}
+  .filtros.aberto .filtros-cab .seta{transform:rotate(180deg)}
+  .badge{font-style:normal;background:var(--azul);color:#0f1115;border-radius:999px;font-size:12px;font-weight:700;padding:1px 8px}
+  .filtros-corpo{display:none;padding:2px 14px 14px;border-top:1px solid var(--linha)}
+  .filtros.aberto .filtros-corpo{display:block}
+  .filtros-corpo .rotulo{margin-top:12px}
+  .chips-wrap{display:flex;flex-wrap:wrap;gap:7px}
+  .chips-wrap.sel{margin-bottom:10px}
+  .fchip{display:inline-flex;align-items:center;gap:7px;background:var(--cartao2);border:1px solid var(--borda);
+    border-radius:999px;padding:7px 11px;font-size:13px;max-width:100%}
+  .fchip i{width:10px;height:10px;border-radius:50%;background:var(--cor);flex:none}
+  .fchip span{color:var(--suave);font-size:12px;font-variant-numeric:tabular-nums}
+  .fchip b{color:#0f1115;margin-left:2px}
+  .fchip.on{background:var(--cor);border-color:var(--cor);color:#0f1115;font-weight:600}
+  .fchip.on i{background:#0f1115;opacity:.55}
+  .fchip.on span{color:#0f1115;opacity:.7}
+  .fchip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .busca.mini{margin:0 0 10px}
+  .busca.mini input{padding:10px 10px 10px 38px;font-size:14px;background:var(--cartao2)}
+  .nada{color:var(--apagado);font-size:13px}
+  .ativos{display:flex;align-items:center;gap:8px;background:rgba(122,162,255,.08);border:1px solid rgba(122,162,255,.25);
+    border-radius:10px;padding:8px 10px 8px 12px;margin:0 0 12px;font-size:13px;color:var(--suave)}
+  .ativos span{flex:1}.ativos b{color:var(--texto)}
+  button.rank{width:100%;background:none;border:none;padding:0;text-align:left;font-size:13.5px}
+  .ev{border-left:3px solid var(--cor)}
   .rodape{text-align:center;color:var(--apagado);font-size:12px;margin-top:28px}
 </style>
 </head>
@@ -192,7 +224,7 @@ const lerG = k => { try { return localStorage.getItem(k); } catch (e) { return n
 
 let token = null, tokenClient = null, SQL = null;
 let computadores = [], pcAtual = null, banco = null, infoBackup = null;
-let periodo = "hoje", diaEscolhido = null, ocultos = new Set(), busca = "";
+let periodo = "hoje", diaEscolhido = null, busca = "";
 
 // ------------------------------------------------------------- login
 function iniciarGoogle() {
@@ -345,81 +377,158 @@ function marcarPeriodo(el) {
 }
 $("btnAtualizar").onclick = () => pcAtual ? carregarBanco() : carregarComputadores();
 
+// ------------------------------------------------------------- filtros
+// nome "agrupável" de cada registro (para o filtro por nome)
+function nomeDe(t, ti, d) {
+  if (t === "Programa aberto" || t === "Programa fechado") return ti;
+  if (t === "Arquivo aberto") return ti;
+  if (t === "Janela ativa" || t === "Aba do navegador") return d;
+  if (t === "Site visitado" && d.includes(": ")) {
+    try { return new URL(d.split(": ").slice(1).join(": ")).hostname.replace(/^www\./, ""); } catch (e) {}
+  }
+  return null;
+}
+const chaveNome = n => (n || "").trim().toLowerCase();
+
+let tiposSel = new Set(), nomesSel = new Map(), buscaNome = "", filtrosAbertos = false;
+try {
+  const f = JSON.parse(lerG("jfg_filtros") || "{}");
+  tiposSel = new Set(f.tipos || []); nomesSel = new Map(f.nomes || []);
+} catch (e) {}
+function salvarFiltros() { guardar("jfg_filtros", JSON.stringify({ tipos: [...tiposSel], nomes: [...nomesSel] })); }
+function limparFiltros() { tiposSel.clear(); nomesSel.clear(); busca = ""; buscaNome = ""; salvarFiltros(); desenhar(); }
+
 // ------------------------------------------------------------- relatório
 function desenhar() {
   const [ini, fim, textoPeriodo] = intervalo();
   const res = banco.exec("SELECT quando,tipo,titulo,detalhe FROM eventos WHERE quando BETWEEN ? AND ? ORDER BY quando, id",
                          [fmt(ini), fmt(fim)]);
-  const todos = res.length ? res[0].values : [];
+  const todos = (res.length ? res[0].values : []).map(r => { r.push(nomeDe(r[1], r[2], r[3])); return r; });
 
   $("titulo").textContent = "Relatório de Atividades — " + pcAtual.nome;
   $("subtitulo").textContent = "Período: " + textoPeriodo;
   $("info").textContent = `Backup de ${br(infoBackup)} às ${dois(infoBackup.getHours())}:${dois(infoBackup.getMinutes())} · ${todos.length.toLocaleString("pt-BR")} registros`;
 
-  const contagem = {};
-  for (const r of todos) contagem[r[1]] = (contagem[r[1]] || 0) + 1;
-
   const termo = busca.trim().toLowerCase();
-  const eventos = todos.filter(r => !ocultos.has(r[1]) &&
-    (!termo || (r[2] + " " + r[3]).toLowerCase().includes(termo)));
+  const passaBusca = r => !termo || (r[2] + " " + r[3]).toLowerCase().includes(termo);
+  const passaTipo = r => !tiposSel.size || tiposSel.has(r[1]);
+  const passaNome = r => !nomesSel.size || (r[4] && nomesSel.has(chaveNome(r[4])));
+  const eventos = todos.filter(r => passaBusca(r) && passaTipo(r) && passaNome(r));
 
-  // rankings (como no relatório do PC)
-  const programas = {}, sites = {};
-  for (const [, t, ti, d] of todos) {
-    if (t === "Programa aberto") programas[ti] = (programas[ti] || 0) + 1;
-    if (t === "Site visitado" && d.includes(": ")) {
-      try { const h = new URL(d.split(": ").slice(1).join(": ")).hostname.replace(/^www\./, ""); sites[h] = (sites[h] || 0) + 1; } catch (e) {}
-    }
+  // contagens "facetadas": cada filtro mostra quanto sobraria escolhendo ele
+  const contTipo = {};
+  for (const r of todos) if (passaBusca(r) && passaNome(r)) contTipo[r[1]] = (contTipo[r[1]] || 0) + 1;
+  const contNome = new Map();
+  for (const r of todos) {
+    if (!r[4] || !passaBusca(r) || !passaTipo(r)) continue;
+    const k = chaveNome(r[4]), x = contNome.get(k) || { nome: r[4], qtd: 0, tipos: {} };
+    x.qtd++; x.tipos[r[1]] = (x.tipos[r[1]] || 0) + 1; contNome.set(k, x);
   }
+  const corNome = x => CORES[Object.entries(x.tipos).sort((a, b) => b[1] - a[1])[0][0]] || "#999";
+
+  // rankings (como no relatório do PC), respeitando os filtros
+  const programas = {}, sites = {};
+  for (const r of eventos) {
+    if (r[1] === "Programa aberto") programas[r[4]] = (programas[r[4]] || 0) + 1;
+    if (r[1] === "Site visitado" && r[4]) sites[r[4]] = (sites[r[4]] || 0) + 1;
+  }
+
+  const tipos = Object.keys(CORES).filter(t => contTipo[t]);
+  for (const t of Object.keys(contTipo)) if (!CORES[t]) tipos.push(t);
+  const qtdFiltros = tiposSel.size + nomesSel.size + (termo ? 1 : 0);
 
   let h = "";
-  const tipos = Object.keys(CORES).filter(t => contagem[t]);
-  for (const t of Object.keys(contagem)) if (!CORES[t]) tipos.push(t);
+  // ---- cartões (resumo por cor)
   if (tipos.length) {
     h += `<div class="cards">` + tipos.map(t =>
-      `<button class="card ${ocultos.has(t) ? "desligado" : ""}" data-tipo="${esc(t)}">
-         <b style="color:${CORES[t] || "#999"}">${contagem[t].toLocaleString("pt-BR")}</b><small>${esc(t)}</small></button>`).join("") + `</div>
-       <p class="dica">Toque num cartão para esconder ou mostrar esse tipo.</p>`;
+      `<button class="card ${tiposSel.size && !tiposSel.has(t) ? "desligado" : ""} ${tiposSel.has(t) ? "marcado" : ""}" data-tipo="${esc(t)}" style="--cor:${CORES[t] || "#999"}">
+         <b style="color:${CORES[t] || "#999"}">${contTipo[t].toLocaleString("pt-BR")}</b><small>${esc(t)}</small></button>`).join("") + `</div>`;
   }
 
+  // ---- painel de filtros
+  const ordenados = [...contNome.values()].sort((a, b) => b.qtd - a.qtd);
+  const tn = buscaNome.trim().toLowerCase();
+  const sugestoes = ordenados.filter(x => !nomesSel.has(chaveNome(x.nome)) && (!tn || x.nome.toLowerCase().includes(tn))).slice(0, 30);
+  h += `<div class="filtros ${filtrosAbertos ? "aberto" : ""}">
+    <button class="filtros-cab" id="btnFiltros">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+      <span>Filtros</span>${qtdFiltros ? `<em class="badge">${qtdFiltros}</em>` : ""}
+      <svg class="seta" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+    <div class="filtros-corpo">
+      <p class="rotulo">Por cor (tipo de atividade)</p>
+      <div class="chips-wrap">${tipos.map(t =>
+        `<button class="fchip ${tiposSel.has(t) ? "on" : ""}" data-tipo="${esc(t)}" style="--cor:${CORES[t] || "#999"}">
+          <i></i>${esc(t)}<span>${contTipo[t].toLocaleString("pt-BR")}</span></button>`).join("") || `<span class="nada">Sem registros</span>`}</div>
+
+      <p class="rotulo" style="margin-top:16px">Por nome (programa, site, arquivo)</p>
+      ${nomesSel.size ? `<div class="chips-wrap sel">${[...nomesSel].map(([k, n]) =>
+        `<button class="fchip on nome" data-k="${esc(k)}" style="--cor:var(--azul)"><i></i>${esc(n)}<b>×</b></button>`).join("")}</div>` : ""}
+      <div class="busca mini"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="inpNome" type="search" placeholder="Digite um nome: chrome, youtube, .xlsx..." value="${esc(buscaNome)}"></div>
+      <div class="chips-wrap">${sugestoes.map(x =>
+        `<button class="fchip" data-k="${esc(chaveNome(x.nome))}" data-n="${esc(x.nome)}" style="--cor:${corNome(x)}">
+          <i></i>${esc(x.nome)}<span>${x.qtd.toLocaleString("pt-BR")}</span></button>`).join("") || `<span class="nada">Nenhum nome encontrado</span>`}</div>
+    </div>
+  </div>`;
+
+  // ---- barra de filtros ativos
+  if (qtdFiltros) {
+    h += `<div class="ativos"><span>Mostrando <b>${eventos.length.toLocaleString("pt-BR")}</b> de ${todos.length.toLocaleString("pt-BR")} registros</span>
+          <button class="btn-link" id="btnLimpar">Limpar filtros</button></div>`;
+  }
+
+  // ---- rankings (tocar filtra pelo nome)
   const blocos = [["Programas mais abertos", programas, "#3b82f6"], ["Sites mais visitados", sites, "#06b6d4"]]
     .filter(([, c]) => Object.keys(c).length);
   if (blocos.length) {
     h += `<div class="col">` + blocos.map(([titulo, c, cor]) => {
       const top = Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 10), max = top[0][1];
       return `<div class="bloco"><h3>${titulo}</h3>` + top.map(([n, q]) =>
-        `<div class="rank"><span class="nome">${esc(n)}</span><span class="qtd">${q}×</span>
-         <div class="barra"><i style="width:${Math.max(4, q / max * 100)}%;background:${cor}"></i></div></div>`).join("") + `</div>`;
+        `<button class="rank" data-k="${esc(chaveNome(n))}" data-n="${esc(n)}"><span class="nome">${esc(n)}</span><span class="qtd">${q}×</span>
+         <div class="barra"><i style="width:${Math.max(4, q / max * 100)}%;background:${cor}"></i></div></button>`).join("") + `</div>`;
     }).join("") + `</div>`;
   }
 
   h += `<div class="busca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="inpBusca" type="search" placeholder="Buscar programa, site ou arquivo" value="${esc(busca)}"></div>`;
+        <input id="inpBusca" type="search" placeholder="Buscar em tudo (título e detalhes)" value="${esc(busca)}"></div>`;
 
-  // agrupa por dia, mais recente primeiro
+  // ---- linha do tempo por dia, mais recente primeiro
   const dias = new Map();
   for (const r of eventos) { const k = r[0].slice(0, 10); if (!dias.has(k)) dias.set(k, []); dias.get(k).push(r); }
   const chaves = [...dias.keys()].sort().reverse();
   if (!todos.length) h += `<div class="vazio">Nenhuma atividade registrada nesse período.</div>`;
-  else if (!chaves.length) h += `<div class="vazio">Nada encontrado com esse filtro.</div>`;
+  else if (!chaves.length) h += `<div class="vazio">Nada encontrado com esses filtros.<br><button class="btn-link" id="btnLimpar2">Limpar filtros</button></div>`;
   const nomesDia = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
   chaves.forEach((k, i) => {
     const [a, m, d] = k.split("-").map(Number), data = new Date(a, m - 1, d);
-    h += `<section class="dia ${i > 0 ? "fechado" : ""}" data-dia="${k}">
+    h += `<section class="dia ${i > 0 && !qtdFiltros ? "fechado" : ""}" data-dia="${k}">
       <button class="dia-cab"><h2>${nomesDia[data.getDay()]}, ${br(data)}</h2><span>${dias.get(k).length.toLocaleString("pt-BR")} registros</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="lista"></div></section>`;
   });
   $("conteudo").innerHTML = h;
 
-  // interações
-  $("conteudo").querySelectorAll(".card").forEach(c => c.onclick = () => {
-    const t = c.dataset.tipo; ocultos.has(t) ? ocultos.delete(t) : ocultos.add(t); desenhar();
+  // ---- interações
+  const alternaTipo = t => { tiposSel.has(t) ? tiposSel.delete(t) : tiposSel.add(t); salvarFiltros(); desenhar(); };
+  const alternaNome = (k, n) => { nomesSel.has(k) ? nomesSel.delete(k) : nomesSel.set(k, n); salvarFiltros(); desenhar(); };
+  $("conteudo").querySelectorAll(".card, .fchip[data-tipo]").forEach(c => c.onclick = () => alternaTipo(c.dataset.tipo));
+  $("conteudo").querySelectorAll(".fchip[data-k]").forEach(c => c.onclick = () => alternaNome(c.dataset.k, c.dataset.n));
+  $("conteudo").querySelectorAll(".rank").forEach(c => c.onclick = () => {
+    if (!nomesSel.has(c.dataset.k)) { nomesSel.set(c.dataset.k, c.dataset.n); salvarFiltros(); }
+    filtrosAbertos = true; desenhar();
   });
-  const inp = $("inpBusca"); let espera;
-  inp.oninput = () => { clearTimeout(espera); espera = setTimeout(() => {
-    busca = inp.value; const pos = inp.selectionStart; desenhar();
-    const novo = $("inpBusca"); novo.focus(); novo.setSelectionRange(pos, pos); }, 300); };
+  $("btnFiltros").onclick = () => { filtrosAbertos = !filtrosAbertos; document.querySelector(".filtros").classList.toggle("aberto", filtrosAbertos); };
+  [$("btnLimpar"), $("btnLimpar2")].forEach(b => b && (b.onclick = limparFiltros));
+
+  const ligaBusca = (id, setter) => {
+    const inp = $(id); let espera;
+    inp.oninput = () => { clearTimeout(espera); espera = setTimeout(() => {
+      setter(inp.value); const pos = inp.selectionStart; desenhar();
+      const novo = $(id); novo.focus(); novo.setSelectionRange(pos, pos); }, 250); };
+  };
+  ligaBusca("inpBusca", v => busca = v);
+  ligaBusca("inpNome", v => buscaNome = v);
 
   $("conteudo").querySelectorAll(".dia").forEach(sec => {
     const lista = sec.querySelector(".lista"), linhas = dias.get(sec.dataset.dia).slice().reverse();
@@ -428,7 +537,7 @@ function desenhar() {
       lista.querySelector(".mais")?.remove();
       const fatia = linhas.slice(mostrados, mostrados + POR_PAGINA);
       lista.insertAdjacentHTML("beforeend", fatia.map(([q, t, ti, d]) =>
-        `<div class="ev"><div class="hora">${q.slice(11, 16)}</div><div class="corpo">
+        `<div class="ev" style="--cor:${CORES[t] || "#999"}"><div class="hora">${q.slice(11, 16)}</div><div class="corpo">
           <span class="tag" style="background:${CORES[t] || "#999"}">${esc(t)}</span>
           <div class="tit">${esc(ti)}</div>${d ? `<div class="det">${esc(d)}</div>` : ""}</div></div>`).join(""));
       mostrados += fatia.length;
