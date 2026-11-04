@@ -1,0 +1,35 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.jfgiralde.relatorios'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.jfgiralde.relatorios'
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('KS_FILE') ?: 'assinatura.keystore')
+            storePassword System.getenv('KS_PASS') ?: ''
+            keyAlias 'jfgiralde'
+            keyPassword System.getenv('KS_PASS') ?: ''
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}
