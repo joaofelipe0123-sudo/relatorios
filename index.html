@@ -113,6 +113,8 @@
   .carregando{display:flex;flex-direction:column;align-items:center;gap:14px;padding:50px 0;color:var(--suave);font-size:14px}
   .giro{width:34px;height:34px;border:3px solid var(--borda);border-top-color:var(--azul);border-radius:50%;animation:g 0.8s linear infinite}
   @keyframes g{to{transform:rotate(360deg)}}
+  .baixar{margin-top:18px;color:var(--azul);font-size:14px;font-weight:600;text-decoration:none;
+    border:1px solid var(--borda);border-radius:10px;padding:10px 14px}
   .rodape{text-align:center;color:var(--apagado);font-size:12px;margin-top:28px}
 </style>
 </head>
@@ -142,6 +144,7 @@
       Entrar com o Google
     </button>
     <div class="aviso" id="avisoEntrada"></div>
+    <a class="baixar oculto" id="linkApk" href="download/Relatorios-JFGiralde.apk" download>Baixar o app para Android (APK)</a>
   </section>
 
   <!-- relatório -->
@@ -212,6 +215,9 @@ function iniciarGoogle() {
   });
 }
 window.addEventListener("load", iniciarGoogle);
+// no navegador do Android (fora do app instalado), oferece o APK
+if (/Android/i.test(navigator.userAgent) && !document.referrer.startsWith("android-app://")
+    && !matchMedia("(display-mode: standalone)").matches) $("linkApk").classList.remove("oculto");
 
 $("btnEntrar").onclick = () => {
   $("avisoEntrada").textContent = "";
